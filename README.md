@@ -1,9 +1,20 @@
 # hse_socks5
 
+[SOCKS5](https://datatracker.ietf.org/doc/html/rfc1928) server implementation
+using [libuv](https://github.com/libuv/libuv).
+
 ## Requirements
 
 * Linux : `>= 5.13`
 * [clang](https://clang.llvm.org/): `>=12.0.1`
+
+## Download
+
+```sh
+$ git clone https://github.com/mitinarseny/hse_socks5.git
+$ cd hse_socks5
+$ git submodule update --init
+```
 
 ## Generate
 
