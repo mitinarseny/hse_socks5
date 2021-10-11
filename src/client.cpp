@@ -11,12 +11,16 @@ void Client::handle_data_event(const uvw::DataEvent &de ,uvw::TCPHandle &h) {
   switch (this->state) {
   case State::GREETING:
     this->handle_state_greeting(de, h);
+    break;
   case State::REQUEST:
     this->handle_state_request(de, h);
+    break;
   case State::ADDRESS:
     this->handle_state_address(de, h);
+    break;
   case State::DATA:
     this->handle_state_data(de, h);
+    break;
   }
 }
 
