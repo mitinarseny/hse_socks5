@@ -27,14 +27,14 @@ void start_server(const std::string &ip, unsigned int port) {
      uvw::Addr remote = client->peer();
      log_info() << "accept: " << remote.ip << " " << remote.port << std::endl;
 
-     client->data(std::make_shared<Client>(client));
+     client->data(std::make_shared<Client>());
 
      client->on<uvw::DataEvent>([](const uvw::DataEvent &de, uvw::TCPHandle &h) {
-        h.data<Client>()->handle_data_event(de);
+        h.data<Client>()->handle_data_event(de, h);
      });
 
      client->on<uvw::EndEvent>([](const uvw::EndEvent &ee, uvw::TCPHandle &h) {
-         h.data<Client>()->handle_end_event(ee);
+         h.data<Client>()->handle_end_event(ee, h);
          h.close();
      });
 
