@@ -7,6 +7,7 @@ using [libuv](https://github.com/libuv/libuv).
 
 * Linux : `>= 5.13`
 * [clang](https://clang.llvm.org/): `>=12.0.1`
+* [Ninja](https://ninja-build.org/)
 
 ## Download
 
@@ -19,7 +20,9 @@ $ git submodule update --init
 ## Generate
 
 ```sh
-$ cmake \
+$ cmake -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_TESTING=Off \
   -DCMAKE_CXX_COMPILER=clang++ \
   -B build
 ```
@@ -39,7 +42,7 @@ $ ./hse_socks5
 
 ## Development
 
-Add `-DCMAKE_EXPORT_COMPILE_COMMANDS=On` to [generate](#generate).  
+Add `-DCMAKE_BUILD_TYPE=Debug` and `-DCMAKE_EXPORT_COMPILE_COMMANDS=On` to [generate](#generate).  
 And then link to the root:
 
 ```sh

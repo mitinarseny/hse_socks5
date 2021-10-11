@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-void Client::handle_data_event(const uvw::DataEvent &de ,uvw::TCPHandle &h) {
+void Client::handle_data_event(const uvw::DataEvent &de, uvw::TCPHandle &h) {
   switch (this->state) {
   case State::GREETING:
     this->handle_state_greeting(de, h);
