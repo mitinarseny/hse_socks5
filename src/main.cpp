@@ -1,6 +1,5 @@
-#include <uvw.hpp>
+#include "server.hpp"
 
 int main() {
-	auto loop = uvw::Loop::getDefault();
-	return 0;
+  start_server("127.0.0.1", 1080);
 }
