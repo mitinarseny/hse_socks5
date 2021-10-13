@@ -42,6 +42,13 @@ Usage:
         ./hse_socks5 [[IP] PORT]
 ```
 
+## Test
+
+While server running, use curl to get public IP address of proxy:
+```sh
+curl 'http://ifconfig.me' --proxy 'socks5h://127.0.0.1:1080'
+```
+
 ## Development
 
 Add `-DCMAKE_BUILD_TYPE=Debug` and `-DCMAKE_EXPORT_COMPILE_COMMANDS=On` to [generate](#generate).  
