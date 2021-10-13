@@ -37,7 +37,9 @@ $ cmake --build build
 
 ```sh
 $ cd build
-$ ./hse_socks5
+$ ./hse_socks5 --help
+Usage:
+        ./hse_socks5 [[IP] PORT]
 ```
 
 ## Development
