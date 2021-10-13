@@ -8,42 +8,48 @@
 #include <memory>
 #include <string>
 
-#include "log.hpp"
 #include "client.hpp"
+#include "log.hpp"
 
 void start_server(const std::string &ip, unsigned int port) {
+  log_info() << "starting server on " << ip << " " << port << std::endl;
+
   auto loop = uvw::Loop::getDefault();
 
   std::shared_ptr<uvw::TCPHandle> tcp = loop->resource<uvw::TCPHandle>();
-  tcp->on<uvw::ErrorEvent>([](const uvw::ErrorEvent &, uvw::TCPHandle &) { assert(false); });
+  tcp->on<uvw::ErrorEvent>(
+      [](const uvw::ErrorEvent &, uvw::TCPHandle &) { assert(false); });
 
   tcp->on<uvw::ListenEvent>([](const uvw::ListenEvent &, uvw::TCPHandle &srv) {
-     std::shared_ptr<uvw::TCPHandle> client = srv.loop().resource<uvw::TCPHandle>();
+    std::shared_ptr<uvw::TCPHandle> client =
+        srv.loop().resource<uvw::TCPHandle>();
 
-     client->on<uvw::ErrorEvent>([](const uvw::ErrorEvent &ee, uvw::TCPHandle &h) {
-         log_error() << ee.name() << ": " << ee.what() << std::endl;
-     });
+    client->on<uvw::ErrorEvent>(
+        [](const uvw::ErrorEvent &ee, uvw::TCPHandle &h) {
+          log_error() << ee.name() << ": " << ee.what() << std::endl;
+        });
 
-     srv.accept(*client);
+    srv.accept(*client);
 
-     uvw::Addr remote = client->peer();
-     log_info() << "accept: " << remote.ip << " " << remote.port << std::endl;
+    uvw::Addr remote = client->peer();
+    log_info() << "accept: " << remote.ip << " " << remote.port << std::endl;
 
-     auto cl = std::make_shared<Client>(client);
-     client->data(cl);
+    auto cl = std::make_shared<Client>(client);
+    client->data(cl);
 
-     client->on<uvw::ErrorEvent>([cl](const uvw::ErrorEvent &ee, uvw::TCPHandle &) {
-         cl->handle_error_event(ee);
-      });
-     client->on<uvw::DataEvent>([cl](uvw::DataEvent &de, uvw::TCPHandle &) {
-        cl->handle_data_event(de);
-     });
+    client->on<uvw::ErrorEvent>(
+        [cl](const uvw::ErrorEvent &ee, uvw::TCPHandle &) {
+          cl->handle_error_event(ee);
+        });
+    client->on<uvw::DataEvent>([cl](uvw::DataEvent &de, uvw::TCPHandle &) {
+      cl->handle_data_event(de);
+    });
 
-     client->on<uvw::EndEvent>([cl](const uvw::EndEvent &ee, uvw::TCPHandle &) {
-         cl->handle_end_event(ee);
-     });
+    client->on<uvw::EndEvent>([cl](const uvw::EndEvent &ee, uvw::TCPHandle &) {
+      cl->handle_end_event(ee);
+    });
 
-     client->read();
+    client->read();
   });
 
   tcp->bind(ip, port);
