@@ -1,3 +1,4 @@
+#include "uvw/emitter.h"
 #include "uvw/loop.h"
 #include "uvw/stream.h"
 #include "uvw/tcp.h"
@@ -31,7 +32,10 @@ void start_server(const std::string &ip, unsigned int port) {
      auto cl = std::make_shared<Client>(client);
      client->data(cl);
 
-     client->on<uvw::DataEvent>([cl](const uvw::DataEvent &de, uvw::TCPHandle &) {
+     client->on<uvw::ErrorEvent>([cl](const uvw::ErrorEvent &ee, uvw::TCPHandle &) {
+         cl->handle_error_event(ee);
+      });
+     client->on<uvw::DataEvent>([cl](uvw::DataEvent &de, uvw::TCPHandle &) {
         cl->handle_data_event(de);
      });
 

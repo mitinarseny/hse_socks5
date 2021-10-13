@@ -1,4 +1,5 @@
 #include "uv.h"
+#include "uvw/dns.h"
 #include "uvw/emitter.h"
 #include "uvw/handle.hpp"
 #include "uvw/stream.h"
@@ -8,10 +9,13 @@
 #include "log.hpp"
 #include "uvw/util.h"
 #include <algorithm>
+#include <cstddef>
 #include <memory>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <string>
 #include <sys/socket.h>
+#include <utility>
 #include <vector>
 
 void Client::read(char buff[], int n) {
@@ -20,7 +24,13 @@ void Client::read(char buff[], int n) {
 
 bool Client::nread(int n) { return this->read_buff.size() >= n; }
 
-void Client::handle_data_event(const uvw::DataEvent &de) {
+void Client::handle_error_event(const uvw::ErrorEvent &ee) {
+  log_error() << "client_conn error: " << ee.name() << ": " << ee.what()
+              << std::endl;
+  this->close();
+}
+
+void Client::handle_data_event(uvw::DataEvent &de) {
   log_debug() << "read event, state " << static_cast<unsigned int>(this->state)
               << ", length: " << de.length << std::endl;
   switch (this->state) {
@@ -55,7 +65,7 @@ void Client::handle_state_greeting() {
 }
 
 void Client::handle_state_request() {
-  if (!this->nread(4)) {
+  if (!this->nread(10)) {
     return;
   }
   if (this->read_buff[0] != SOCKS5_PROTO_VERSION) {
@@ -74,52 +84,36 @@ void Client::handle_state_request() {
   }
   AddrType at = static_cast<AddrType>(this->read_buff[3]);
 
+  std::string node;
   sockaddr dst_addrr;
   uint16_t dst_port;
   switch (cmd) {
   case Command::CONNECT: {
+    log_debug() << "addr_type is: " << static_cast<unsigned int>(at)
+                << std::endl;
     switch (at) {
     case AddrType::IPv4: {
-      if (!this->nread(6 + 4)) {
-        return;
-      }
-      uvw::details::IpTraits<uvw::IPv4>::Type dst_addr;
-      memset(&dst_addr, 0, sizeof(dst_addr));
-      dst_addr.sin_family = AF_INET;
-      dst_addr.sin_port = (*(this->read_buff.data() + 8) << 8) |
-                          (*(this->read_buff.data() + 9) & 0xff);
-      dst_addr.sin_addr.s_addr =
-          *reinterpret_cast<in_addr_t *>(this->read_buff.data() + 4);
-      dst_addrr = reinterpret_cast<const sockaddr &>(dst_addr);
-      dst_port = dst_addr.sin_port;
+      auto noder =
+          ntohl(*reinterpret_cast<in_addr_t *>(this->read_buff.data() + 4));
+      node = std::to_string(noder >> 24) + "." +
+             std::to_string(noder >> 16 & 0xff) + "." +
+             std::to_string(noder >> 8 & 0xff) + "." +
+             std::to_string(noder & 0xff);
+      dst_port =
+          ntohs(*reinterpret_cast<uint16_t *>(this->read_buff.data() + 8));
       break;
     }
-    // case AddrType::DOMAIN_NAME: {
-    //   uint8_t dst_addr_size = this->read_buff[4];
-    //   if (!this->nread(7 + dst_addr_size)) {
-    //     return;
-    //   }
-    //   // TODO
-    //   // dst_addr = std::string(this->read_buff.begin() + 5,
-    //   // this->read_buff.begin() + dst_addr_size);
-    //   break;
-    // }
-    // case AddrType::IPv6: {
-    //   if (!this->nread(6 + 16)) {
-    //     return;
-    //   }
-    //   // uvw::details::IpTraits<uvw::IPv6>::Type dst_addr;
-    //   // memset(&dst_addr, 0, sizeof(dst_addr));
-    //   // dst_addr.sin6_family = AF_INET6;
-    //   // dst_addr.sin6_port = (*(this->read_buff.data()+8) << 8) |
-    //   // (*(this->read_buff.data()+9) & 0xff); dst_addr.sin6_addr.s_addr =
-    //   // *reinterpret_cast<in_addr_t*>(this->read_buff.data()+4); dst_addrr =
-    //   // reinterpret_cast<const sockaddr &>(dst_addr); break;
-    //   dst_addr.sa_family
-    //   // = AF_INET; std::copy(this->read_buff.begin() + 4,
-    //   // this->read_buff.begin() + 8, dst_addr.sa_data);
-    //   break;
-    // }
+    case AddrType::DOMAIN_NAME: {
+      std::size_t domain_name_size = this->read_buff[4];
+      log_debug() << "domain name size: " << domain_name_size << std::endl;
+      if (!this->nread(7 + domain_name_size)) {
+        return;
+      }
+      node = std::string(this->read_buff.data() + 5, domain_name_size);
+      dst_port = ntohs(*reinterpret_cast<uint16_t *>(this->read_buff.data() +
+                                                     5 + domain_name_size));
+      break;
+    }
     default: {
       log_error() << "addr type not supported: "
                   << static_cast<unsigned int>(at) << std::endl;
@@ -133,6 +127,18 @@ void Client::handle_state_request() {
     log_error() << "command not supported: " << static_cast<unsigned int>(cmd)
                 << std::endl;
     this->send_error_reply(Reply::COMMAND_NOT_SUPPORTED);
+    return;
+  }
+
+  log_debug() << "node: " << node << ", port: " << dst_port << std::endl;
+  addrinfo hint{AI_NUMERICSERV, AF_INET, SOCK_STREAM};
+  auto res =
+      this->client_conn->loop().resource<uvw::GetAddrInfoReq>()->addrInfoSync(
+          node, std::to_string(dst_port), &hint);
+  if (!res.first) {
+    log_error() << "addrinfo failed for " << node << " " << dst_port
+                << std::endl;
+    this->send_error_reply(Reply::HOST_UNREACHABLE);
     return;
   }
 
@@ -165,41 +171,54 @@ void Client::handle_state_request() {
         log_debug() << "connected" << std::endl;
         this->setState(State::DATA);
         h.read();
-        this->send_reply(Reply::SUCCEED, at, dst_addrr, dst_port);
+        this->send_reply(Reply::SUCCEED, at, *res.second);
       });
-  this->dst_conn->on<uvw::DataEvent>(
-      [&](const uvw::DataEvent &de, uvw::TCPHandle &h) {
-        log_debug() << "got data from dst_conn, length: " << de.length << std::endl;
-        this->client_conn->write(de.data.get(), de.length);
-      });
+  this->dst_conn->on<uvw::DataEvent>([&](uvw::DataEvent &de,
+                                         uvw::TCPHandle &h) {
+    log_debug() << "got data from dst_conn, length: " << de.length << std::endl;
+    this->client_conn->write(std::move(de.data), de.length);
+  });
 
-  // TODO
-  this->dst_conn->connect("34.117.59.81", 80);
+  this->dst_conn->connect(*res.second->ai_addr);
 }
 
-void Client::handle_state_data(const uvw::DataEvent &de) {
-  this->dst_conn->tryWrite(de.data.get(), de.length);
+void Client::handle_state_data(uvw::DataEvent &de) {
+  this->dst_conn->write(std::move(de.data), de.length);
 }
 
-void Client::send_reply(Reply r, AddrType at, const sockaddr &bind_addr,
-                        uint8_t bind_port) {
-  std::size_t addr_size = (bind_addr.sa_family == AF_INET ? 4 : 16);
+void Client::send_reply(Reply r, AddrType at, const addrinfo &bind_addr) {
+  std::size_t addr_size = (bind_addr.ai_family == AF_INET6 ? 16 : 4);
   std::size_t reply_size = 6 + addr_size;
   std::vector<char> reply(reply_size, 0);
   reply[0] = SOCKS5_PROTO_VERSION;
   reply[1] = static_cast<char>(r);
   reply[2] = 0x00; // reserved
   reply[3] = static_cast<char>(at);
-  std::copy_n(bind_addr.sa_data, addr_size, reply.begin() + 4);
-  reply[reply_size - 2] = bind_port >> 8;
-  reply[reply_size - 1] = bind_port & 0xff;
-  log_debug() << "send reply: " << static_cast<unsigned int>(r) << std::endl;
-  this->client_conn->write(reply.data(), reply.size());
+  switch (bind_addr.ai_family) {
+  case AF_INET: {
+    reply = std::vector<char>(6 + 4, 0);
+    auto a = *reinterpret_cast<sockaddr_in *>(bind_addr.ai_addr);
+    *reinterpret_cast<in_addr_t *>(reply.data() + 4) = a.sin_addr.s_addr;
+    *reinterpret_cast<uint16_t *>(reply.data() + 4 + addr_size) =
+        htons(a.sin_port);
+    break;
+  }
+  case AF_INET6: {
+    reply = std::vector<char>(6 + 16, 0);
+    auto a = *reinterpret_cast<sockaddr_in6 *>(bind_addr.ai_addr);
+    *reinterpret_cast<in6_addr *>(reply.data() + 4) = a.sin6_addr;
+    *reinterpret_cast<uint16_t *>(reply.data() + 4 + addr_size) =
+        htons(a.sin6_port);
+    break;
+  }
+  }
+  this->client_conn->tryWrite(reply.data(), reply_size);
 }
 
 void Client::send_error_reply(Reply r) {
-  log_error() << "send_error_reply" << static_cast<unsigned int>(r) << std::endl;
-  this->send_reply(r, AddrType::IPv4, sockaddr{}, 0);
+  log_error() << "send_error_reply: " << static_cast<unsigned int>(r)
+              << std::endl;
+  this->send_reply(r, AddrType::IPv4, addrinfo{});
   this->close();
 }
 
@@ -215,6 +234,4 @@ void Client::close() {
   this->dst_conn = nullptr;
 }
 
-void Client::handle_end_event(const uvw::EndEvent &ee) { 
-  // this->close();
-}
+void Client::handle_end_event(const uvw::EndEvent &ee) { this->close(); }

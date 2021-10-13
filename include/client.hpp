@@ -1,6 +1,8 @@
+#include "uvw/emitter.h"
 #include "uvw/stream.h"
 #include "uvw/tcp.h"
 #include <memory>
+#include <netdb.h>
 
 #include "log.hpp"
 
@@ -9,7 +11,8 @@ constexpr uint8_t SOCKS5_PROTO_VERSION = 0x05;
 class Client {
 public:
   Client(std::shared_ptr<uvw::TCPHandle> &h): client_conn(h), state(State::GREETING) {}
-  void handle_data_event(const uvw::DataEvent &);
+  void handle_data_event(uvw::DataEvent &);
+  void handle_error_event(const uvw::ErrorEvent &);
   void handle_end_event(const uvw::EndEvent &);
 private:
   enum class State {
@@ -22,12 +25,12 @@ private:
   void setState(State s) {
     log_debug() << "set state: " << static_cast<int>(s) << std::endl;
     this->state = s;
-    this->read_buff.erase(this->read_buff.begin(), this->read_buff.end());
+    this->read_buff.clear();
   }
 
   void handle_state_greeting();
   void handle_state_request();
-  void handle_state_data(const uvw::DataEvent &);
+  void handle_state_data(uvw::DataEvent &);
 
   enum class AuthMethod {
     NO_AUTH_REQUIRED       = 0x00,
@@ -58,7 +61,7 @@ private:
     ADDR_TYPE_NOT_SUPPORTED = 0x08,
   };
 
-  void send_reply(Reply r, AddrType at, const sockaddr &bind_addr, uint8_t bind_port);
+  void send_reply(Reply r, AddrType at, const addrinfo &bind_addr);
   void send_error_reply(Reply);
 
   std::shared_ptr<uvw::TCPHandle> client_conn, dst_conn;
